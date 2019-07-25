@@ -1,8 +1,32 @@
 # DockerでRedmineのSystem Testを動かしてみた
 
+
+
 ## Dockerで環境を整える
 
+まず、ディレクトリの構成は以下。
+`redmine`はここ[https://github.com/redmine/redmine]からclone。
+`postgres`ディレクトリは、`docker-compose`でコンテナを起動すれば勝手に作成されるはず。
+`postgres`のデータを保存する場所です。
+`postgres`の中は空じゃないと`postgresql`のコンテナの起動に失敗するので注意です。
+
+```ディレクトリの構成:sh
+workspace/
+ ├── docker-compose.yml
+ ├── Dockerfile
+ ├── entrypoint.sh
+ ├── redmine/
+ └── postgers/
 ```
+
+各ファイルの内容です。
+
+`redmine`は`Dockerfile`からビルド。
+`selenium-hub`は何だろう。。。
+`chrome`がchromeドライバです。
+redmineのシステムテストを動かすために使う。
+
+```docker-compose.yml:yml
 version: '3'
 
 services:
@@ -40,7 +64,7 @@ services:
       - 5900:5900
 ```
 
-```
+```Dockerfile:Dockerfile
 FROM ruby:2.5
 
 RUN gem install bundler
@@ -57,7 +81,7 @@ EXPOSE 3000
 CMD ["bundle", "exec", "rails", "server", "-b", "0.0.0.0"]1
 ```
 
-```
+```entrypoint.sh:sh
 #!/bin/bash
 set -e
 
@@ -66,11 +90,26 @@ rm -f /redmine/tmp/pids/server.pid
 exec "$@"
 ```
 
-## chrome側からRedmineをみてみる
+## chrome側からRedmineが見えるか確認
+
+ブラウザを立ち上げてアドレスバーに、`http://localhost:5900`を入力。
+画面共有をするか聞かれるので`OK`を選択。
+パスワードを聞かれたら`secret`。
+黒い画面が立ち上がる。
+右クリック -> Application -> Network -> chrome。
+立ち上げたchromeのアドレスバーに`http://redmine:3000`を入力。
+`redmine`は`docker-compose.yml`で指定したサービス名。
+Redmineの画面が表示されたので成功。
+先に進む。
 
 ## RedmineのTestファイルを修正
 
-```
+Redmineのシステムテストの設定を変更。
+「「「「ここ」」」」を参考にしつつ、SystemTestingのソースを見てブラウザの設定とurlを足してみる。
+chromeから接続する先をsetupの中に記述。
+
+
+```redmine/test/application_system_test_case.rb:ruby
   driven_by :selenium, using: :chrome, screen_size: [1024, 900], options: {
       desired_capabilities: Selenium::WebDriver::Remote::Capabilities.chrome(
         'chromeOptions' => {
@@ -93,16 +132,24 @@ exec "$@"
   end
 ```
 
+## テストを実行してみる
 
+`docker-compose exec redmine bundle exec rake test:system`で実行。
 
-なんか動かなかった
-```
+動かなかった。
+
+```terminal:sh
 NameError: uninitialized constant ApplicationSystemTestCase::Selenium
 /redmine/test/application_system_test_case.rb:26:in `<class:ApplicationSystemTestCase>'
 /redmine/test/application_system_test_case.rb:22:in `<top (required)>'
 ```
 
-```
+エラーの内容はよくわからなかったけど、とりあえずエラーになった部分をコメントアウト。
+「「「ここ」」」を参考に書き換えてみる。
+とりあえず、`desired_capabilities`を書き換えるとうまくいった。
+調査は後回し。
+
+```redmine/test/application_system_test_case.rb:ruby
   driven_by :selenium, using: :chrome, screen_size: [1024, 900], options: {
       desired_capabilities: :chrome,
 #       desired_capabilities: Selenium::WebDriver::Remote::Capabilities.chrome(
@@ -119,11 +166,9 @@ NameError: uninitialized constant ApplicationSystemTestCase::Selenium
     }
 ```
 
+再度実行。
 
-
-## テストを実行してみる
-
-```
+```terminal:sh
 Run options: --seed 45718
 
 # Running:
@@ -160,6 +205,7 @@ Net::ReadTimeout: Net::ReadTimeout
 bin/rails test test/system/my_page_test.rb:57
 ```
 
+動いたけど、テストは失敗。
 なんかいっぱいエラー出たけどとりあえず動かせたから今回はここまで。
 どうしてエラーが出てるのかわかる方いたら教えてください
 
