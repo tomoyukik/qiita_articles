@@ -114,6 +114,21 @@ $ ln -s /Users/tomoyukik/.rbenv/shims/ruby  /usr/local/bin/ruby
 
 vim開けた！
 
+```vim:vim
+~                                         VIM - Vi IMproved
+~
+~                                         version 8.1.1800
+~                                     by Bram Moolenaar et al.
+~                            Vim is open source and freely distributable
+~
+~                                     Sponsor Vim development!
+~                          type  :help sponsor<Enter>    for information
+~
+~                          type  :q<Enter>               to exit
+~                          type  :help<Enter>  or  <F1>  for on-line help
+~                          type  :help version8<Enter>   for version info
+```
+
 
 ...けど警告がなぜかいっぱい出る。
 
