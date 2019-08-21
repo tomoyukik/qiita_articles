@@ -1,68 +1,35 @@
 # DockerでRedmineのSystem Testを動かしてみた
 
-
+業務でRedmineのPlugin開発をしているのですが、
+せっかくDocker上で開発しているので、System TestもDocker上で実行できないかと思い試行錯誤してみました。
 
 ## Dockerで環境を整える
 
-まず、ディレクトリの構成は以下。
-`redmine`はここ[https://github.com/redmine/redmine]からclone。
-`postgres`ディレクトリは、`docker-compose`でコンテナを起動すれば勝手に作成されるはず。
-`postgres`のデータを保存する場所です。
-`postgres`の中は空じゃないと`postgresql`のコンテナの起動に失敗するので注意です。
+まず、ディレクトリの構成です。
 
-```ディレクトリの構成:sh
+```sh:ディレクトリ構成
 workspace/
- ├── docker-compose.yml
  ├── Dockerfile
+ ├── docker-compose.yml
+ ├── docker-compose-dev.yml
+ ├── docker-sync.yml
+ ├── docker-compose-test.yml
  ├── entrypoint.sh
  ├── redmine/
  └── postgers/
 ```
 
+`redmine`は[ここ](https://github.com/redmine/redmine)からclone。
+`postgres`ディレクトリは、`docker-compose`でコンテナを起動すれば勝手に作成されるはず。
+`postgres`以下にはPostgreSQLのデータが保存されます。
+
 各ファイルの内容です。
 
-`redmine`は`Dockerfile`からビルド。
-`selenium-hub`は何だろう。。。
-`chrome`がchromeドライバです。
-redmineのシステムテストを動かすために使う。
+### `Dockerfile`
 
-```docker-compose.yml:yml
-version: '3'
+基本の`Dockerfile`。
 
-services:
-  redmine:
-    build: .
-    image: redmine:4
-    environment:
-      BUNDLE_PATH: /redmine/vendor/bundle
-      RAILS_ENV: development
-      DB_HOST_NAME: postgres
-    volumes:
-      - ./redmine:/redmine
-    ports:
-      - 3000:3000
-    depends_on:
-      - postgres
-      - chrome
-  postgres:
-    image: postgres:9.6
-    volumes:
-      - ./postgres:/var/lib/postgresql/data
-  selenium-hub:
-    image: selenium/hub:3.141.59-selenium
-    ports:
-      - 4444:4444
-  chrome:
-    image: selenium/node-chrome-debug:3.141.59-selenium
-    shm_size: 2g
-    depends_on:
-      - selenium-hub
-    environment:
-      - HUB_HOST=selenium-hub
-      - HUB_PORT=4444
-    ports:
-      - 5900:5900
-```
+今回は`ruby:2.5`のイメージを使用します。
 
 ```Dockerfile:Dockerfile
 FROM ruby:2.5
@@ -81,6 +48,16 @@ EXPOSE 3000
 CMD ["bundle", "exec", "rails", "server", "-b", "0.0.0.0"]1
 ```
 
+`redmine`は後からvolumeするのでイメージの中ではディレクトリを作成するだけです。
+
+実際はRedmineもイメージに追加して、`files`、`plugins`だけvolumeする方がいいかもしれません。
+開発用の環境なので、環境変数は`ENV RAILS_ENV development`を指定します。
+
+### `entrypoint.sh`
+
+イメージの作成に使います。
+公式のRails用のサンプルを参考にしています。(https://docs.docker.com/compose/rails/)
+
 ```entrypoint.sh:sh
 #!/bin/bash
 set -e
@@ -90,26 +67,177 @@ rm -f /redmine/tmp/pids/server.pid
 exec "$@"
 ```
 
-## chrome側からRedmineが見えるか確認
+### `docker-compose.yml`
 
-ブラウザを立ち上げてアドレスバーに、`http://localhost:5900`を入力。
+Redmineの開発環境用の`docker-compose.yml`です。
+
+```yml:docker-compose.yml
+version: '3'
+
+services:
+  redmine:
+    build: .
+    image: redmine:4
+    environment:
+      BUNDLE_PATH: /redmine/vendor/bundle
+      RAILS_ENV: development
+      DB_HOST_NAME: postgres
+    volumes:
+      - ./redmine:/redmine
+    ports:
+      - 3000:3000
+    depends_on:
+      - postgres
+  postgres:
+    image: postgres:9.6
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+```
+
+`image:`属性を指定すると、docker-composeでbuildしたイメージの名前を指定できます。
+`BUNDLE_PATH`と`RAILS_ENV`は`Dockerfile`で指定しているのでここで指定する必要はありません。
+
+### `docker-compose-dev.yml`
+
+`docker-sync`用の設定です。
+
+System Testはかなり遅いので、`docker-sync`は使用した方がいいと思います。
+docker-syncは別にインストールする必要があります。
+
+```yml:docker-compose-dev.yml
+version: '3'
+
+services:
+  redmine:
+    volumes:
+      - redmine4_volume:/redmine
+  postgres:
+    volumes:
+      - redmine4_postgres_volume:/var/lib/postgresql/data
+
+volumes:
+  redmine4_volume:
+    external: true
+  redmine4_postgres_volume:
+    external: true
+```
+
+`servces`には`docker-compose.yml`での設定と変更したい属性と追加したい属性のみを記述します。
+
+`volumes`にはdocker-syncで定義するvolumeの名前を宣言します。
+
+### `docker-sync.yml`
+
+docker-syncの設定ファイルです。
+
+```yml:docker-sync.yml
+version: '2'
+
+syncs:
+  redmine4_volume:
+    src: './redmine'
+    sync_strategy: 'unison'
+  redmine4_postgres_volume:
+    src: './postgresql_data'
+    sync_strategy: 'unison'
+```
+
+`src`は相対パスで記述してますが、絶対パスで書いた方が安心だと思います。
+
+`docker-sync.yml`は拡張子を`yaml`にしたら起動できませんでした。
+
+### `docker-compose-test.yml`
+
+test環境用のcomposeファイルです。
+
+```yml:docker-compose-test.yml
+version: '3'
+
+services:
+  redmine:
+    environment:
+      RAILS_ENV: test
+    depends_on:
+      - chrome
+  selenium-hub:
+    image: selenium/hub:3.141.59-selenium
+    ports:
+      - 4444:4444
+  chrome:
+    image: selenium/node-chrome-debug:3.141.59-selenium
+    shm_size: 2g
+    depends_on:
+      - selenium-hub
+    environment:
+      - HUB_HOST=selenium-hub
+      - HUB_PORT=4444
+    ports:
+      - 5900:5900
+```
+
+`RAILS_ENV`はテスト環境なので`test`に変更します。
+
+`chrome`はchromeドライバです。
+redmineのシステムテストを動かすために必要です。
+`selenium-hub`がどうして必要なのか、まだ理解できてないんですが、多分`chrome`を使うために必要なんじゃないかと思ってます。
+
+## Redmineを起動します。
+
+```sh:Terminal
+$ cd /path/to/workspace
+$ docker-compose build
+$ docker-compose run --rm redmine bundle install
+$ docker-compose run --rm redmine bundle exec rake db:create db:migrate
+```
+
+Redmineの環境が整うまでRedmineの起動ができないので`run`コマンドを使用して環境を整えます。
+`--rm`オプションはrunコマンドで作成されたコンテナを削除するためのコマンドです。
+
+ここまででRedmineの準備は完了です！
+
+## System Testを動かす
+
+まずはコンテナ間でネットワークが繋がっているかどうかの確認です。
+
+docker-syncを起動して起きます。
+
+```sh:Terminal
+$ docker-sync start
+```
+
+### chrome側からRedmineが見えるか確認
+
+chromeとRedmineが繋がっているのか確認したかったので、まずはchromeのコンテナからRedmineにアクセスできるかを確認します。
+
+まずはRedmineを起動。
+
+```
+$ docker-compose -f docker-compose.yml -f docker-compose-dev.yml up
+```
+
+Redmineを起動したらホストのブラウザを立ち上げて、アドレスバーに`http://localhost:5900`を入力します。
 画面共有をするか聞かれるので`OK`を選択。
-パスワードを聞かれたら`secret`。
-黒い画面が立ち上がる。
-右クリック -> Application -> Network -> chrome。
-立ち上げたchromeのアドレスバーに`http://redmine:3000`を入力。
-`redmine`は`docker-compose.yml`で指定したサービス名。
-Redmineの画面が表示されたので成功。
-先に進む。
+パスワードを聞かれたら`secret`、黒い画面が立ち上がるはずです。
 
-## RedmineのTestファイルを修正
+起動した画面上で*右クリック → Application → Network → chrome*。chromeコンテナ上のchromeが起動できます。
 
-Redmineのシステムテストの設定を変更。
-「「「「ここ」」」」を参考にしつつ、SystemTestingのソースを見てブラウザの設定とurlを足してみる。
-chromeから接続する先をsetupの中に記述。
+立ち上げたchromeのアドレスバーに`http://redmine:3000`を入力するとRedmineにアクセスできます。
+URLの`redmine`は`docker-compose.yml`で指定したサービス名です。
+Redmineの画面が表示されれば成功です。一度コンテナを落とします。
 
+```
+$ docker-compose down
+```
 
-```redmine/test/application_system_test_case.rb:ruby
+### RedmineのTestファイルを修正
+
+Redmineのシステムテストの設定を、dockerコンテナ上で動くように変更します。
+
+[RailsのAPI](https://api.rubyonrails.org/v5.1.3/classes/ActionDispatch/SystemTestCase.html)とか
+`actionpack-5.2.3/lib/action_dispatch/system_testing/driver.rb`と`actionpack-5.2.3/lib/action_dispatch/system_testing/browser.rb`のソースを参考にしながら
+`application_system_test_case.rb`の設定を追加してみました。
+
+```ruby:redmine/test/application_system_test_case.rb
   driven_by :selenium, using: :chrome, screen_size: [1024, 900], options: {
       desired_capabilities: Selenium::WebDriver::Remote::Capabilities.chrome(
         'chromeOptions' => {
@@ -132,35 +260,30 @@ chromeから接続する先をsetupの中に記述。
   end
 ```
 
-## テストを実行してみる
+`driven_by`の引数のハッシュに、ブラウザの種類`browser: :remote`、
+ブラウザのURL`url: 'http://selenium-hub:4444/wd/hub'`を追記。
 
-`docker-compose exec redmine bundle exec rake test:system`で実行。
+`setup`のブロックの中にapplicationのホスト`Capybara.app_host = 'http://redmine:3000'`を追記します。
 
-動かなかった。
+### テスト実行
 
-```terminal:sh
+```sh:Terminal
+$ docker-compose -f docker-compose.yml -f docker-compose-dev.yml -f docker-compose.test run --rm redmine bundle exec rake test:system
+```
+
+以下のエラーが出て動きませんでした。
+
+```sh:Terminal
 NameError: uninitialized constant ApplicationSystemTestCase::Selenium
 /redmine/test/application_system_test_case.rb:26:in `<class:ApplicationSystemTestCase>'
 /redmine/test/application_system_test_case.rb:22:in `<top (required)>'
 ```
 
-エラーの内容はよくわからなかったけど、とりあえずエラーになった部分をコメントアウト。
-「「「ここ」」」を参考に書き換えてみる。
-とりあえず、`desired_capabilities`を書き換えるとうまくいった。
-調査は後回し。
+エラーになった部分を`desired_capabilities: :chrome`に書き換えます。
 
-```redmine/test/application_system_test_case.rb:ruby
+```ruby:redmine/test/application_system_test_case.rb
   driven_by :selenium, using: :chrome, screen_size: [1024, 900], options: {
       desired_capabilities: :chrome,
-#       desired_capabilities: Selenium::WebDriver::Remote::Capabilities.chrome(
-#         'chromeOptions' => {
-#           'prefs' => {
-#             'download.default_directory' => DOWNLOADS_PATH,
-#             'download.prompt_for_download' => false,
-#             'plugins.plugins_disabled' => ["Chrome PDF Viewer"]
-#           }
-#         }
-#       ),
       browser: :remote,
       url: 'http://selenium-hub:4444/wd/hub'
     }
@@ -168,7 +291,19 @@ NameError: uninitialized constant ApplicationSystemTestCase::Selenium
 
 再度実行。
 
-```terminal:sh
+```sh:Terminal
+Run options: --seed 45718
+
+# Running:
+...
+```
+
+何故か動きました。
+エラーの内容は調査しきれな買ったのでまた次回。
+
+テストの実行結果はこんな感じです。
+
+```sh:Terminal
 Run options: --seed 45718
 
 # Running:
@@ -205,13 +340,13 @@ Net::ReadTimeout: Net::ReadTimeout
 bin/rails test test/system/my_page_test.rb:57
 ```
 
-動いたけど、テストは失敗。
-なんかいっぱいエラー出たけどとりあえず動かせたから今回はここまで。
-どうしてエラーが出てるのかわかる方いたら教えてください
+とりあえずテストを動かせるところまでは成功しましたが、テストは失敗しました。
+エラーがいっぱい出てます。
 
+でもとりあえず動かせたから今回はここまでにします。
+
+文章にするのは難しいですね。
 
 ## 参考
 
 https://qiita.com/yutachaos/items/4a1da5d55a3bf0df889e
-docker公式のページ
-selenium-hubのページ
