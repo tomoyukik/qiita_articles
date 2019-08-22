@@ -1,2 +1,2 @@
 # qiita_articles
-qiita用の記事置き場
+qiitaに投稿した記事を保存してるだけのリポジトリです。
