@@ -13,24 +13,6 @@ SageMakerを活用してDeepRacerのモデル学習を行い、DeepRacerにエ�
 
 これを足がかりとして、 AWSの各サービスへの理解の深化やより柔軟なDeepRacerのモデル構築を進めていきたい。
 
-## 目次
-
-1. DeepRacerとは何か
-1. なぜSageMakerを使いたいか。 SageMakerを使うことのメリット。
-1. 必要な要素と構成
-    - SageMakerとは
-    - RoboMakerとは
-    - Kinesis Video Streamとは
-1. SageMakerを活用した学習の仕組み
-1. 環境の構築
-    - Imageの用意(SageMaker/RoboMaker)
-    - RoboMakerアプリケーションの作成
-    - Kinesis Video Streamの作成
-1. 学習の方法
-    - SageMakerでのジョブの作成
-    - logの確認方法
-1. モデルのインポート
-
 ## [DeepRacer](https://docs.aws.amazon.com/deepracer/latest/developerguide/what-is-deepracer.html)とは
 
 自動運転のアプリケーションを構築することで、強化学習について学べるサービスである。
@@ -55,7 +37,7 @@ Dockerコンテナを使用すると、独自のアルゴリズムを用いて�
 強化学習用のモデルの構築には、[RoboMaker](https://docs.aws.amazon.com/ja_jp/robomaker/latest/dg/gettingstarted-concepts.html)を組み合わせて使用する。
 RoboMakerはシミュレーションを行うことができるサービスで、構築したモデルの走行をRoboMaker上でシミュレートし、その走行結果をSageMakerにフィードバックすることで強化学習を実現する。
 
-## SageMakerを利用することのメリット
+## SageMakerを利用するメリット
 
 DeepRacerのモデル構築にSageMakerを使用することで、
 
